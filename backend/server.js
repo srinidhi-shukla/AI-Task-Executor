@@ -10,11 +10,12 @@ const cors = require('cors');
 const GUARDRAILS = require('./guardrails');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://192.168.4.122:5173',
+  'https://srinidhi-shukla.github.io',
 ];
 
 app.use(
@@ -23,7 +24,7 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error(`CORS blocked for origin: ${origin}`));
+        callback(null, true);
       }
     },
     methods: ['GET', 'POST', 'OPTIONS'],

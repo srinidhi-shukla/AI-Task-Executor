@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 const API_BASE =
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:3000'
-    : `http://${window.location.hostname}:3000`;
+  import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const colors = {
   pageBg: '#f3f5f1',
