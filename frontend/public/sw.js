@@ -1,10 +1,10 @@
 // Basic service worker for PWA installable behavior
 const CACHE_NAME = 'ai-task-executor-v1';
 const urlsToCache = [
-  '/',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png'
+  './',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 // Install event - cache basic resources

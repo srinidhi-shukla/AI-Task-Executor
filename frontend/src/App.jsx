@@ -24,6 +24,8 @@ const colors = {
 };
 
 function App() {
+  const initialWindowWidth =
+    typeof window !== 'undefined' ? window.innerWidth : 1200;
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [currentInput, setCurrentInput] = useState('');
@@ -34,8 +36,8 @@ function App() {
   const [showHistory, setShowHistory] = useState({});
   const [showCustomizeModal, setShowCustomizeModal] = useState(false);
   const [activeStepHistoryId, setActiveStepHistoryId] = useState(null);
-  const [isMobile, setIsMobile] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const [isMobile, setIsMobile] = useState(initialWindowWidth < 768);
+  const [windowWidth, setWindowWidth] = useState(initialWindowWidth);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -75,8 +77,9 @@ function App() {
     maxWidth: isMobile ? '100%' : 1440,
     width: '100%',
     margin: '0 auto',
+    boxSizing: 'border-box',
     padding: isMobile
-      ? '12px 12px 20px'
+      ? '10px 12px 16px'
       : isLargeDesktop
       ? '36px 30px'
       : isMediumDesktop
@@ -105,11 +108,14 @@ function App() {
   const mainStyle = {
     backgroundColor: colors.panelBg,
     border: `1px solid ${colors.border}`,
-    borderRadius: isMobile ? 18 : 24,
-    boxShadow: colors.shadow,
-    padding: isMobile ? 14 : isLargeDesktop ? 28 : isMediumDesktop ? 24 : 20,
+    borderRadius: isMobile ? 16 : 24,
+    boxShadow: isMobile ? '0 8px 18px rgba(23, 48, 31, 0.05)' : colors.shadow,
+    padding: isMobile ? 12 : isLargeDesktop ? 28 : isMediumDesktop ? 24 : 20,
     minHeight: isMobile ? 'auto' : isLargeDesktop ? 'calc(100vh - 220px)' : isMediumDesktop ? 'calc(100vh - 180px)' : 'calc(100vh - 160px)',
     overflow: isMobile ? 'visible' : 'auto',
+    boxSizing: 'border-box',
+    width: '100%',
+    minWidth: 0,
   };
 
   const selectedTask = useMemo(
@@ -2020,9 +2026,9 @@ function App() {
     return (
       <div
         style={{
-          marginTop: 16,
-          padding: isMobile ? 14 : 18,
-          borderRadius: 18,
+          marginTop: isMobile ? 12 : 16,
+          padding: isMobile ? 12 : 18,
+          borderRadius: isMobile ? 16 : 18,
           backgroundColor: '#fcfcf9',
           border: `1px solid ${colors.border}`,
         }}
@@ -2031,24 +2037,25 @@ function App() {
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            gap: 16,
-            alignItems: 'center',
+            gap: isMobile ? 10 : 16,
+            alignItems: isMobile ? 'flex-start' : 'center',
+            flexDirection: isMobile ? 'column' : 'row',
           }}
         >
-          <div style={{ fontWeight: 700, color: colors.text }}>
+          <div style={{ fontWeight: 700, color: colors.text, fontSize: isMobile ? 14 : 16, lineHeight: 1.4 }}>
             {step.result?.title || step.title}
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                padding: '5px 10px',
+                padding: isMobile ? '4px 8px' : '5px 10px',
                 borderRadius: 999,
                 backgroundColor: colors.panelMuted,
                 color: colors.textMuted,
                 fontWeight: 700,
-                fontSize: 12,
+                fontSize: isMobile ? 11 : 12,
                 textTransform: 'capitalize',
               }}
             >
@@ -2058,12 +2065,12 @@ function App() {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                padding: '5px 10px',
+                padding: isMobile ? '4px 8px' : '5px 10px',
                 borderRadius: 999,
                 backgroundColor: stepStatus.bg,
                 color: stepStatus.color,
                 fontWeight: 700,
-                fontSize: 12,
+                fontSize: isMobile ? 11 : 12,
               }}
             >
               {stepStatus.label}
@@ -2085,7 +2092,7 @@ function App() {
 
         {renderStepContentByType(step.result)}
 
-        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
           {Array.isArray(step.revisions) && step.revisions.length > 0 && (
             <button
               onClick={() => setStepHistory(step.id)}
@@ -2095,9 +2102,10 @@ function App() {
                 background: 'white',
                 color: colors.primary,
                 borderRadius: 8,
-                padding: '6px 10px',
+                padding: isMobile ? '7px 10px' : '6px 10px',
                 fontWeight: 600,
                 cursor: 'pointer',
+                width: isMobile ? '100%' : 'auto',
               }}
             >
               {activeStepHistoryId === step.id ? 'Hide history' : 'Step history'}
@@ -2157,7 +2165,7 @@ function App() {
             e.preventDefault();
             await refineStep(taskId, step.id, refineValue);
           }}
-          style={{ marginTop: 16 }}
+          style={{ marginTop: isMobile ? 14 : 16 }}
         >
           <div style={{ fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 8 }}>
             Refine this step
@@ -2255,9 +2263,9 @@ function App() {
             background:
               'linear-gradient(135deg, rgba(199, 221, 156, 0.28) 0%, rgba(255,255,255,1) 75%)',
             border: `1px solid ${colors.border}`,
-            borderRadius: 22,
-            padding: isMobile ? 16 : 22,
-            marginBottom: 24,
+            borderRadius: isMobile ? 18 : 22,
+            padding: isMobile ? 14 : 22,
+            marginBottom: isMobile ? 18 : 24,
           }}
         >
           <div
@@ -2291,11 +2299,11 @@ function App() {
         </div>
 
         {Array.isArray(result.steps) && result.steps.length > 0 ? (
-          <div style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 14px', color: colors.text, fontSize: 20 }}>
+          <div style={{ marginBottom: isMobile ? 18 : 24 }}>
+            <h3 style={{ margin: '0 0 12px', color: colors.text, fontSize: isMobile ? 18 : 20 }}>
               Workflow steps
             </h3>
-            <div style={{ display: 'grid', gap: 14 }}>
+            <div style={{ display: 'grid', gap: isMobile ? 10 : 14 }}>
               {result.steps.map((step, index) => {
                 const statusMeta = getStatusMeta(step.status);
 
@@ -2304,8 +2312,8 @@ function App() {
                     key={step.id || index}
                     style={{
                       border: `1px solid ${colors.border}`,
-                      borderRadius: 18,
-                      padding: isMobile ? 14 : 18,
+                      borderRadius: isMobile ? 16 : 18,
+                      padding: isMobile ? 12 : 18,
                       backgroundColor: colors.panelBg,
                     }}
                   >
@@ -2320,8 +2328,8 @@ function App() {
                       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flex: 1 }}>
                         <div
                           style={{
-                            minWidth: 34,
-                            height: 34,
+                            minWidth: isMobile ? 28 : 34,
+                            height: isMobile ? 28 : 34,
                             borderRadius: 999,
                             backgroundColor: statusMeta.bg,
                             color: statusMeta.color,
@@ -2329,23 +2337,23 @@ function App() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             fontWeight: 800,
-                            fontSize: 13,
+                            fontSize: isMobile ? 12 : 13,
                           }}
                         >
                           {step.status === 'completed' ? '✓' : index + 1}
                         </div>
 
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 800, color: colors.text, fontSize: 17 }}>
+                          <div style={{ fontWeight: 800, color: colors.text, fontSize: isMobile ? 15 : 17, lineHeight: 1.35 }}>
                             {step.title}
                           </div>
                           {step.description ? (
                             <div
                               style={{
-                                marginTop: 6,
+                                marginTop: 5,
                                 color: colors.textMuted,
-                                fontSize: 14,
-                                lineHeight: 1.6,
+                                fontSize: isMobile ? 13 : 14,
+                                lineHeight: 1.5,
                               }}
                             >
                               {step.description}
@@ -2354,18 +2362,18 @@ function App() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'stretch' : 'flex-end', gap: 8 }}>
                         <span
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 6,
-                            padding: '5px 10px',
+                            padding: isMobile ? '4px 8px' : '5px 10px',
                             borderRadius: 999,
                             backgroundColor: statusMeta.bg,
                             color: statusMeta.color,
                             fontWeight: 700,
-                            fontSize: 12,
+                            fontSize: isMobile ? 11 : 12,
                           }}
                         >
                           {step.status === 'completed' ? 'Completed' : statusMeta.label}
@@ -2378,13 +2386,13 @@ function App() {
                             style={{
                               border: 'none',
                               borderRadius: 10,
-                              padding: '8px 12px',
+                              padding: isMobile ? '10px 12px' : '8px 12px',
                               backgroundColor:
                                 step.status === 'running' ? '#cbd5c8' : colors.primary,
                               color: '#fff',
                               fontWeight: 700,
                               cursor: step.status === 'running' ? 'not-allowed' : 'pointer',
-                              fontSize: 13,
+                              fontSize: isMobile ? 12 : 13,
                               width: isMobile ? '100%' : 'auto',
                             }}
                           >
@@ -2403,18 +2411,18 @@ function App() {
         ) : null}
 
         {Array.isArray(result.sections) && result.sections.length > 0 ? (
-          <div style={{ marginTop: 28 }}>
-            <h3 style={{ margin: '0 0 14px', color: colors.text, fontSize: 20 }}>
+          <div style={{ marginTop: isMobile ? 20 : 28 }}>
+            <h3 style={{ margin: '0 0 12px', color: colors.text, fontSize: isMobile ? 18 : 20 }}>
               Summary details
             </h3>
-            <div style={{ display: 'grid', gap: 14 }}>
+            <div style={{ display: 'grid', gap: isMobile ? 10 : 14 }}>
               {result.sections.map((section, index) => (
                 <div
                   key={index}
                   style={{
                     border: `1px solid ${colors.border}`,
-                    borderRadius: 18,
-                    padding: isMobile ? 14 : 18,
+                    borderRadius: isMobile ? 16 : 18,
+                    padding: isMobile ? 12 : 18,
                     backgroundColor: colors.panelBg,
                   }}
                 >
@@ -2444,13 +2452,16 @@ function App() {
     }
   };
 
+  const isTaskRunnable = (task) =>
+    task && ['queued', 'failed', 'needs_input'].includes(task.status);
+
   const renderTaskListPanel = (mobile = false) => (
     <>
-      <div style={{ marginBottom: mobile ? 14 : 18 }}>
-        <div style={{ fontSize: mobile ? 16 : 18, fontWeight: 700, marginBottom: 12 }}>
-          Tomorrow’s list
+      <div style={{ marginBottom: mobile ? 12 : 18 }}>
+        <div style={{ fontSize: mobile ? 15 : 18, fontWeight: 700, marginBottom: mobile ? 10 : 12 }}>
+          {mobile ? 'Quick add' : 'Tomorrow’s list'}
         </div>
-        <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', gap: 10, minWidth: 0 }}>
           <input
             value={currentInput}
             onChange={(e) => setCurrentInput(e.target.value)}
@@ -2461,11 +2472,13 @@ function App() {
             style={{
               flex: 1,
               minWidth: 0,
-              padding: '12px 14px',
-              borderRadius: 12,
+              padding: mobile ? '11px 12px' : '12px 14px',
+              borderRadius: mobile ? 14 : 12,
               border: `1px solid ${colors.border}`,
               outline: 'none',
               fontSize: 14,
+              backgroundColor: mobile ? '#fbfcf8' : '#fff',
+              boxSizing: 'border-box',
             }}
           />
           <button
@@ -2473,16 +2486,17 @@ function App() {
             disabled={!currentInput.trim()}
             style={{
               border: 'none',
-              borderRadius: 12,
-              padding: '12px 16px',
+              borderRadius: mobile ? 14 : 12,
+              padding: mobile ? '12px 14px' : '12px 16px',
               backgroundColor: currentInput.trim() ? colors.primary : '#cbd5c8',
               color: '#fff',
-              fontWeight: 700,
+              fontWeight: 800,
               cursor: currentInput.trim() ? 'pointer' : 'not-allowed',
               width: mobile ? '100%' : 'auto',
+              boxSizing: 'border-box',
             }}
           >
-            Add
+            {mobile ? 'Add Task' : 'Add'}
           </button>
         </div>
       </div>
@@ -2491,8 +2505,9 @@ function App() {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 10,
-          marginBottom: mobile ? 14 : 18,
+          gap: mobile ? 8 : 10,
+          marginBottom: mobile ? 12 : 18,
+          minWidth: 0,
         }}
       >
         {[
@@ -2504,13 +2519,15 @@ function App() {
             key={item.label}
             style={{
               backgroundColor: colors.panelMuted,
-              borderRadius: mobile ? 14 : 16,
-              padding: mobile ? 10 : 12,
+              borderRadius: mobile ? 12 : 16,
+              padding: mobile ? 9 : 12,
               border: `1px solid ${colors.border}`,
+              boxSizing: 'border-box',
+              minWidth: 0,
             }}
           >
-            <div style={{ fontSize: mobile ? 18 : 20, fontWeight: 800 }}>{item.value}</div>
-            <div style={{ color: colors.textMuted, fontSize: 12 }}>{item.label}</div>
+            <div style={{ fontSize: mobile ? 16 : 20, fontWeight: 800 }}>{item.value}</div>
+            <div style={{ color: colors.textMuted, fontSize: mobile ? 11 : 12 }}>{item.label}</div>
           </div>
         ))}
       </div>
@@ -2521,8 +2538,8 @@ function App() {
         style={{
           width: '100%',
           border: 'none',
-          borderRadius: mobile ? 12 : 14,
-          padding: mobile ? '13px 14px' : '14px 16px',
+          borderRadius: mobile ? 14 : 14,
+          padding: mobile ? '12px 14px' : '14px 16px',
           backgroundColor:
             runningAll || queuedCount === 0 ? '#cbd5c8' : colors.success,
           color: '#fff',
@@ -2530,29 +2547,171 @@ function App() {
           fontSize: 14,
           cursor: runningAll || queuedCount === 0 ? 'not-allowed' : 'pointer',
           marginBottom: mobile ? 14 : 18,
+          boxSizing: 'border-box',
         }}
       >
         {runningAll ? 'Running tasks...' : 'Run My List'}
       </button>
 
-      <div style={{ display: 'grid', gap: mobile ? 10 : 12 }}>
+      <div style={{ display: 'grid', gap: mobile ? 8 : 12, minWidth: 0 }}>
         {tasks.length === 0 ? (
           <div
             style={{
               border: `1px dashed ${colors.border}`,
-              borderRadius: mobile ? 14 : 16,
-              padding: mobile ? 16 : 20,
+              borderRadius: mobile ? 16 : 16,
+              padding: mobile ? 18 : 20,
               textAlign: 'center',
               color: colors.textMuted,
               backgroundColor: colors.panelMuted,
+              boxSizing: 'border-box',
             }}
           >
-            Add your first item above.
+            <div style={{ color: colors.text, fontWeight: 700, marginBottom: 4 }}>No tasks yet</div>
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              Add your first task to get started.
+            </div>
           </div>
         ) : (
           tasks.map((task) => {
             const status = getStatusMeta(task.status);
             const isSelected = task.id === selectedTaskId;
+            const canRun = isTaskRunnable(task);
+
+            if (mobile) {
+              return (
+                <div
+                  key={task.id}
+                  style={{
+                    border: isSelected
+                      ? `2px solid ${colors.primary}`
+                      : `1px solid ${colors.border}`,
+                    borderRadius: 14,
+                    backgroundColor: isSelected ? '#f3f8f4' : colors.panelBg,
+                    padding: 10,
+                    boxShadow: isSelected ? '0 10px 24px rgba(29, 107, 79, 0.10)' : 'none',
+                    boxSizing: 'border-box',
+                    width: '100%',
+                    minWidth: 0,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTask(task.id)}
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
+                      margin: 0,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                      <div
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 999,
+                          backgroundColor: status.bg,
+                          color: status.color,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: 12,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {status.icon}
+                      </div>
+
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            color: colors.text,
+                            lineHeight: 1.35,
+                            marginBottom: 4,
+                            fontSize: 14,
+                          }}
+                        >
+                          {task.title}
+                        </div>
+
+                        <div
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 12,
+                            lineHeight: 1.4,
+                            marginBottom: 8,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {task.preview || status.label}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      marginTop: 4,
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        backgroundColor: status.bg,
+                        color: status.color,
+                        fontWeight: 700,
+                        fontSize: 11,
+                      }}
+                    >
+                      {status.label}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => processTask(task.id)}
+                      disabled={!canRun || task.status === 'running' || task.status === 'analyzing'}
+                      style={{
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '8px 12px',
+                        backgroundColor:
+                          canRun && task.status !== 'running' && task.status !== 'analyzing'
+                            ? colors.primary
+                            : '#cbd5c8',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor:
+                          canRun && task.status !== 'running' && task.status !== 'analyzing'
+                            ? 'pointer'
+                            : 'not-allowed',
+                        minWidth: 72,
+                      }}
+                    >
+                      {task.status === 'running' || task.status === 'analyzing' ? 'Running' : 'Run'}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <button
@@ -2563,11 +2722,11 @@ function App() {
                   border: isSelected
                     ? `2px solid ${colors.primary}`
                     : `1px solid ${colors.border}`,
-                  borderRadius: mobile ? 16 : 18,
-                  backgroundColor: isSelected ? '#f1f7f2' : colors.panelBg,
-                  padding: mobile ? 14 : 16,
+                  borderRadius: 18,
+                  backgroundColor: isSelected ? '#f3f8f4' : colors.panelBg,
+                  padding: 16,
                   cursor: 'pointer',
-                  boxShadow: isSelected ? colors.shadow : 'none',
+                  boxShadow: isSelected ? '0 10px 24px rgba(29, 107, 79, 0.10)' : 'none',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -2582,6 +2741,7 @@ function App() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       fontWeight: 800,
+                      fontSize: 14,
                       flexShrink: 0,
                     }}
                   >
@@ -2594,7 +2754,8 @@ function App() {
                         fontWeight: 700,
                         color: colors.text,
                         lineHeight: 1.4,
-                        marginBottom: 8,
+                        marginBottom: 6,
+                        fontSize: 15,
                       }}
                     >
                       {task.title}
@@ -2605,8 +2766,8 @@ function App() {
                         style={{
                           color: colors.textMuted,
                           fontSize: 13,
-                          lineHeight: 1.5,
-                          marginBottom: 10,
+                          lineHeight: 1.45,
+                          marginBottom: 8,
                         }}
                       >
                         {task.preview}
@@ -2642,6 +2803,9 @@ function App() {
     <div
       style={{
         minHeight: '100vh',
+        width: '100%',
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
         background:
           'radial-gradient(circle at top left, rgba(199, 221, 156, 0.22), transparent 28%), linear-gradient(180deg, #f3f5f1 0%, #edf1ea 100%)',
         fontFamily:
@@ -2650,21 +2814,33 @@ function App() {
       }}
     >
       <div style={containerStyle}>
-        <div style={{ marginBottom: isMobile ? 20 : 28 }}>
+        <div
+          style={{
+            marginBottom: isMobile ? 14 : 28,
+            position: isMobile ? 'sticky' : 'static',
+            top: isMobile ? 0 : 'auto',
+            zIndex: isMobile ? 20 : 'auto',
+            paddingBottom: isMobile ? 8 : 0,
+            background: isMobile
+              ? 'linear-gradient(180deg, rgba(243,245,241,0.96) 0%, rgba(243,245,241,0.82) 75%, rgba(243,245,241,0) 100%)'
+              : 'transparent',
+            backdropFilter: isMobile ? 'blur(8px)' : 'none',
+          }}
+        >
           <div
             style={{
-              fontSize: 13,
+              fontSize: isMobile ? 11 : 13,
               color: colors.primary,
               fontWeight: 700,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              marginBottom: 10,
+              marginBottom: isMobile ? 6 : 10,
             }}
           >
             AI Operator
           </div>
-          <h1 style={{ margin: 0, fontSize: isMobile ? 28 : 38, lineHeight: 1.05 }}>AI Task Inbox</h1>
-          <p style={{ margin: '12px 0 0', color: colors.textMuted, fontSize: isMobile ? 14 : 16 }}>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 38, lineHeight: isMobile ? 1.08 : 1.05 }}>AI Task Inbox</h1>
+          <p style={{ margin: isMobile ? '6px 0 0' : '12px 0 0', color: colors.textMuted, fontSize: isMobile ? 13 : 16, lineHeight: isMobile ? 1.45 : 1.6, maxWidth: isMobile ? 320 : 'none' }}>
             Each workflow step now keeps its own structured recommendations, not just the final summary.
           </p>
         </div>
@@ -2685,14 +2861,17 @@ function App() {
         ) : null}
 
         {isMobile ? (
-          <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 10, width: '100%', minWidth: 0, overflowX: 'hidden', boxSizing: 'border-box' }}>
             <section
               style={{
                 backgroundColor: colors.panelBg,
                 border: `1px solid ${colors.border}`,
-                borderRadius: 18,
-                boxShadow: colors.shadow,
-                overflow: 'hidden',
+                borderRadius: 16,
+                boxShadow: '0 8px 18px rgba(23, 48, 31, 0.05)',
+                overflow: 'visible',
+                width: '100%',
+                minWidth: 0,
+                boxSizing: 'border-box',
               }}
             >
               <button
@@ -2701,19 +2880,47 @@ function App() {
                   width: '100%',
                   border: 'none',
                   backgroundColor: mobileMenuOpen ? '#eef4ef' : colors.panelBg,
-                  padding: '14px 14px',
+                  padding: '13px 14px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   color: colors.text,
                   fontWeight: 800,
-                  fontSize: 15,
+                  fontSize: 14,
                   cursor: 'pointer',
+                  boxSizing: 'border-box',
                 }}
               >
-                <span>Tasks ({tasks.length})</span>
-                <span style={{ color: colors.textMuted, fontSize: 13 }}>
-                  {mobileMenuOpen ? 'Close' : selectedTask ? 'Open' : 'Open Tasks'}
+                <span>My Tasks</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      minWidth: 24,
+                      height: 24,
+                      padding: '0 8px',
+                      borderRadius: 999,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: colors.panelMuted,
+                      color: colors.text,
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {tasks.length}
+                  </span>
+                  <span
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 16,
+                      transform: mobileMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 160ms ease',
+                      lineHeight: 1,
+                    }}
+                  >
+                    ˅
+                  </span>
                 </span>
               </button>
 
@@ -2723,6 +2930,9 @@ function App() {
                     padding: '0 14px 14px',
                     borderTop: `1px solid ${colors.border}`,
                     backgroundColor: '#fcfcf9',
+                    width: '100%',
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
                   {renderTaskListPanel(true)}
@@ -2736,6 +2946,9 @@ function App() {
                     fontSize: 13,
                     lineHeight: 1.5,
                     backgroundColor: '#fcfcf9',
+                    width: '100%',
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
                   Viewing: <span style={{ color: colors.text, fontWeight: 700 }}>{selectedTask.title}</span>
@@ -2747,12 +2960,27 @@ function App() {
               {!selectedTask ? (
                 <div
                   style={{
-                    padding: '18px 6px 6px',
-                    color: colors.textMuted,
-                    lineHeight: 1.6,
+                    padding: '8px 0 0',
+                    width: '100%',
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
-                  Open Tasks to add or select a task.
+                  <div
+                    style={{
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 14,
+                      padding: 16,
+                      backgroundColor: '#fafbf7',
+                      textAlign: 'center',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <div style={{ color: colors.text, fontWeight: 800, marginBottom: 4 }}>No task selected</div>
+                    <div style={{ color: colors.textMuted, lineHeight: 1.5, fontSize: 13 }}>
+                      Add or select a task to continue.
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -2772,12 +3000,12 @@ function App() {
                           fontWeight: 700,
                           letterSpacing: '0.08em',
                           textTransform: 'uppercase',
-                          marginBottom: 8,
+                          marginBottom: 6,
                         }}
                       >
                         Task detail
                       </div>
-                      <h2 style={{ margin: 0, fontSize: 24, lineHeight: 1.15 }}>
+                      <h2 style={{ margin: 0, fontSize: 22, lineHeight: 1.18 }}>
                         {selectedTask.title}
                       </h2>
                       <div
@@ -2829,13 +3057,13 @@ function App() {
                     </div>
 
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {(selectedTask.status === 'queued' || selectedTask.status === 'failed') ? (
+                      {(selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
                         <button
                           onClick={() => processTask(selectedTask.id)}
                           style={{
                             border: 'none',
                             borderRadius: 12,
-                            padding: '12px 16px',
+                            padding: '13px 16px',
                             backgroundColor: colors.primary,
                             color: '#fff',
                             fontWeight: 800,
@@ -2853,7 +3081,7 @@ function App() {
                           style={{
                             border: '1px solid #d1d5db',
                             borderRadius: 12,
-                            padding: '12px 16px',
+                            padding: '13px 16px',
                             backgroundColor: '#fff',
                             color: colors.primary,
                             fontWeight: 800,
@@ -2911,8 +3139,8 @@ function App() {
                       <div
                         style={{
                           borderTop: `1px solid ${colors.border}`,
-                          paddingTop: 18,
-                          marginTop: 18,
+                          paddingTop: 16,
+                          marginTop: 16,
                         }}
                       >
                         <h3 style={{ margin: '0 0 12px', fontSize: 18 }}>Ask a follow-up</h3>
