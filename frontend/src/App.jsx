@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE =
-  import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  import.meta.env.VITE_API_URL || 'http://192.168.4.122:3000';
 
 const colors = {
   pageBg: '#f3f5f1',
@@ -23,27 +23,45 @@ const colors = {
   accent: '#c7dd9c',
 };
 
-function classifyTask(text) {
+function classifyTaskType(text) {
   const t = text.toLowerCase().trim();
-  if (!t) return 'todo';
-  if (t.length <= 4) return 'habit';
+
+  if (
+    t.startsWith('sleep') ||
+    t.startsWith('eat') ||
+    t.startsWith('drink water') ||
+    t.startsWith('workout') ||
+    t.startsWith('walk') ||
+    t.startsWith('study') ||
+    t.includes('before ') ||
+    t.includes('every day') ||
+    t.includes('daily')
+  ) return 'habit';
+
   if (
     t.startsWith('call') ||
-    t.startsWith('email') ||
     t.startsWith('text') ||
+    t.startsWith('email') ||
+    t.startsWith('send') ||
     t.startsWith('buy') ||
-    t.startsWith('send')
+    t.startsWith('pay') ||
+    t.startsWith('book') ||
+    t.split(' ').length <= 2
   ) return 'todo';
+
   if (
     t.includes('plan') ||
     t.includes('find') ||
     t.includes('best') ||
     t.includes('cheap') ||
+    t.includes('compare') ||
     t.includes('options') ||
-    t.includes('compare')
+    t.includes('recommend') ||
+    t.includes('under $') ||
+    t.includes('itinerary')
   ) return 'research';
-  if (t.split(' ').length <= 2) return 'todo';
-  return 'research';
+
+  return 'todo';
 }
 
 function App() {
@@ -79,7 +97,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('aiTasks', JSON.stringify(tasks));
+    try {
+      localStorage.setItem('aiTasks', JSON.stringify(tasks));
+    } catch (e) {
+      console.error('localStorage error', e);
+    }
   }, [tasks]);
 
   useEffect(() => {
@@ -152,10 +174,9 @@ function App() {
   const createTask = (title) => ({
     id: Date.now().toString() + Math.random().toString(36).slice(2, 7),
     title: title.trim(),
-    type: classifyTask(title),
     status: 'queued',
     preview: '',
-    taskType: '',
+    taskType: classifyTaskType(title),
     result: {
       recommendation: '',
       summary: '',
@@ -472,9 +493,9 @@ function App() {
   };
 
   const getMobileTypeTabMatch = (task, tab) => {
-    if (tab === 'ai') return task.type === 'research';
-    if (tab === 'tasks') return task.type === 'todo';
-    if (tab === 'habits') return task.type === 'habit';
+    if (tab === 'ai') return task.taskType === 'research';
+    if (tab === 'tasks') return task.taskType === 'todo';
+    if (tab === 'habits') return task.taskType === 'habit';
     return true;
   };
 
@@ -488,11 +509,11 @@ function App() {
       result: {
         ...(task.result || {}),
         recommendation:
-          task.type === 'habit'
+          task.taskType === 'habit'
             ? 'Habit completed for now. Track it again anytime.'
             : 'Simple task completed.',
         summary:
-          task.type === 'habit'
+          task.taskType === 'habit'
             ? 'Habit completed for now. Track it again anytime.'
             : 'Simple task completed.',
         sections: [],
@@ -738,7 +759,10 @@ function App() {
     updateTask(taskId, {
       status: 'running',
       preview: preview + (preview.length >= 110 ? '...' : ''),
-      taskType: data?.taskType || 'general',
+      taskType:
+        data?.taskType && ['research', 'todo', 'habit'].includes(data.taskType)
+          ? data.taskType
+          : task.taskType || 'research',
       result,
     });
 
@@ -852,21 +876,21 @@ function App() {
     try {
       const task = getTaskById(taskId);
       if (!task) return;
-      if (task.type !== 'research') {
+      if (task.taskType === 'todo' || task.taskType === 'habit') {
         updateTask(taskId, {
           status: 'ready',
           preview:
-            task.type === 'habit'
-              ? 'Habit added. Track or complete it anytime.'
-              : 'Simple task added. No AI workflow needed.',
+            task.taskType === 'habit'
+              ? 'Habit added.'
+              : 'Simple task added.',
           result: {
             recommendation:
-              task.type === 'habit'
-                ? 'Habit added. Track or complete it anytime.'
+              task.taskType === 'habit'
+                ? 'Habit added.'
                 : 'Simple task added. Mark it done when complete.',
             summary:
-              task.type === 'habit'
-                ? 'Habit added. Track or complete it anytime.'
+              task.taskType === 'habit'
+                ? 'Habit added.'
                 : 'Simple task added. Mark it done when complete.',
             sections: [],
             steps: [],
@@ -2682,7 +2706,7 @@ function App() {
         ) : (
           tasks.map((task) => {
             const status = getStatusMeta(task.status);
-            const typeMeta = getTaskTypeMeta(task.type);
+            const typeMeta = getTaskTypeMeta(task.taskType);
             const isSelected = task.id === selectedTaskId;
             const canRun = isTaskRunnable(task);
 
@@ -2811,23 +2835,23 @@ function App() {
 
                     <button
                       type="button"
-                      onClick={() => (task.type === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
-                      disabled={(task.type === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.type !== 'research' && task.status === 'running')}
+                      onClick={() => (task.taskType === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
+                      disabled={(task.taskType === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.taskType !== 'research' && task.status === 'running')}
                       style={{
                         border: 'none',
                         borderRadius: 10,
                         padding: '8px 12px',
                         backgroundColor:
-                          ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                            (task.type !== 'research' && task.status !== 'running'))
+                          ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                            (task.taskType !== 'research' && task.status !== 'running'))
                             ? colors.primary
                             : '#cbd5c8',
                         color: '#fff',
                         fontWeight: 800,
                         fontSize: 12,
                         cursor:
-                          ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                            (task.type !== 'research' && task.status !== 'running'))
+                          ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                            (task.taskType !== 'research' && task.status !== 'running'))
                             ? 'pointer'
                             : 'not-allowed',
                         minWidth: 72,
@@ -2835,7 +2859,7 @@ function App() {
                     >
                       {task.status === 'running' || task.status === 'analyzing'
                         ? 'Running'
-                        : task.type === 'research'
+                        : task.taskType === 'research'
                         ? 'Run'
                         : 'Done'}
                     </button>
@@ -3138,7 +3162,7 @@ function App() {
         ) : (
           mobileVisibleTasks.map((task) => {
             const status = getStatusMeta(task.status);
-            const typeMeta = getTaskTypeMeta(task.type);
+            const typeMeta = getTaskTypeMeta(task.taskType);
             const isSelected = task.id === selectedTaskId;
             const canRun = isTaskRunnable(task);
 
@@ -3266,23 +3290,23 @@ function App() {
 
                   <button
                     type="button"
-                    onClick={() => (task.type === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
-                    disabled={(task.type === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.type !== 'research' && task.status === 'running')}
+                    onClick={() => (task.taskType === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
+                    disabled={(task.taskType === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.taskType !== 'research' && task.status === 'running')}
                     style={{
                       border: 'none',
                       borderRadius: 10,
                       padding: '8px 12px',
                       backgroundColor:
-                        ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                          (task.type !== 'research' && task.status !== 'running'))
+                        ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                          (task.taskType !== 'research' && task.status !== 'running'))
                           ? colors.primary
                           : '#cbd5c8',
                       color: '#fff',
                       fontWeight: 800,
                       fontSize: 12,
                       cursor:
-                        ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                          (task.type !== 'research' && task.status !== 'running'))
+                        ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                          (task.taskType !== 'research' && task.status !== 'running'))
                           ? 'pointer'
                           : 'not-allowed',
                       minWidth: 72,
@@ -3290,7 +3314,7 @@ function App() {
                   >
                     {task.status === 'running' || task.status === 'analyzing'
                       ? 'Running'
-                      : task.type === 'research'
+                      : task.taskType === 'research'
                       ? 'Run'
                       : 'Done'}
                   </button>
@@ -3449,13 +3473,13 @@ function App() {
                             alignItems: 'center',
                             padding: '6px 10px',
                             borderRadius: 999,
-                            backgroundColor: getTaskTypeMeta(selectedTask.type).bg,
-                            color: getTaskTypeMeta(selectedTask.type).color,
+                            backgroundColor: getTaskTypeMeta(selectedTask.taskType).bg,
+                            color: getTaskTypeMeta(selectedTask.taskType).color,
                             fontWeight: 700,
                             fontSize: 12,
                           }}
                         >
-                          {getTaskTypeMeta(selectedTask.type).label}
+                          {getTaskTypeMeta(selectedTask.taskType).label}
                         </span>
                         {selectedTask.revisions && selectedTask.revisions.length > 0 && (
                           <button
@@ -3483,7 +3507,7 @@ function App() {
                     </div>
 
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {selectedTask.type === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
+                      {selectedTask.taskType === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
                         <button
                           onClick={() => processTask(selectedTask.id)}
                           style={{
@@ -3501,7 +3525,7 @@ function App() {
                         </button>
                       ) : null}
 
-                      {selectedTask.type === 'research' && selectedTask.status === 'ready' ? (
+                      {selectedTask.taskType === 'research' && selectedTask.status === 'ready' ? (
                         <button
                           onClick={() => setShowCustomizeModal(true)}
                           style={{
@@ -3521,7 +3545,7 @@ function App() {
                     </div>
                   </div>
 
-                  {selectedTask.type !== 'research' ? (
+                  {selectedTask.taskType !== 'research' ? (
                     <div
                       style={{
                         border: `1px solid ${colors.border}`,
@@ -3533,7 +3557,7 @@ function App() {
                     >
                       <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTask.title}</div>
                       <div style={{ color: colors.textMuted, lineHeight: 1.5, fontSize: 14, marginBottom: 12 }}>
-                        {selectedTask.type === 'habit'
+                        {selectedTask.taskType === 'habit'
                           ? 'Habit item. Track it daily.'
                           : 'Simple task. Complete it when done.'}
                       </div>
@@ -3594,7 +3618,7 @@ function App() {
                       {showHistory[selectedTask.id] && renderTaskHistory(selectedTask)}
                       {renderTaskResult(selectedTask.result, selectedTask.id)}
 
-                      {selectedTask.type === 'research' ? <div
+                      {selectedTask.taskType === 'research' ? <div
                         style={{
                           borderTop: `1px solid ${colors.border}`,
                           paddingTop: 16,
@@ -3686,7 +3710,7 @@ function App() {
                     </>
                   )}
 
-                  {selectedTask.type === 'research' && showCustomizeModal && (
+                  {selectedTask.taskType === 'research' && showCustomizeModal && (
                     <div
                       style={{
                         position: 'fixed',
@@ -3933,13 +3957,13 @@ function App() {
                           alignItems: 'center',
                           padding: '6px 10px',
                           borderRadius: 999,
-                          backgroundColor: getTaskTypeMeta(selectedTask.type).bg,
-                          color: getTaskTypeMeta(selectedTask.type).color,
+                          backgroundColor: getTaskTypeMeta(selectedTask.taskType).bg,
+                          color: getTaskTypeMeta(selectedTask.taskType).color,
                           fontWeight: 700,
                           fontSize: 12,
                         }}
                       >
-                        {getTaskTypeMeta(selectedTask.type).label}
+                        {getTaskTypeMeta(selectedTask.taskType).label}
                       </span>
                       {selectedTask.revisions && selectedTask.revisions.length > 0 && (
                         <button
@@ -3966,7 +3990,7 @@ function App() {
                     </div>
                   </div>
 
-                  {selectedTask.type === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed') ? (
+                  {selectedTask.taskType === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed') ? (
                     <button
                       onClick={() => processTask(selectedTask.id)}
                       style={{
@@ -3984,7 +4008,7 @@ function App() {
                     </button>
                   ) : null}
 
-                  {selectedTask.type === 'research' && selectedTask.status === 'ready' ? (
+                  {selectedTask.taskType === 'research' && selectedTask.status === 'ready' ? (
                     <button
                       onClick={() => setShowCustomizeModal(true)}
                       style={{
@@ -4003,7 +4027,7 @@ function App() {
                   ) : null}
                 </div>
 
-                {selectedTask.type !== 'research' ? (
+                {selectedTask.taskType !== 'research' ? (
                   <div
                     style={{
                       border: `1px solid ${colors.border}`,
@@ -4015,7 +4039,7 @@ function App() {
                   >
                     <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTask.title}</div>
                     <div style={{ color: colors.textMuted, lineHeight: 1.6, marginBottom: 12 }}>
-                      {selectedTask.type === 'habit'
+                      {selectedTask.taskType === 'habit'
                         ? 'Habit item. Track it daily.'
                         : 'Simple task. Complete it when done.'}
                     </div>
@@ -4075,7 +4099,7 @@ function App() {
                     {showHistory[selectedTask.id] && renderTaskHistory(selectedTask)}
                     {renderTaskResult(selectedTask.result, selectedTask.id)}
 
-                    {selectedTask.type === 'research' ? <div
+                    {selectedTask.taskType === 'research' ? <div
                       style={{
                         borderTop: `1px solid ${colors.border}`,
                         paddingTop: 22,
@@ -4167,7 +4191,7 @@ function App() {
                   </>
                 )}
 
-                {selectedTask.type === 'research' && showCustomizeModal && (
+                {selectedTask.taskType === 'research' && showCustomizeModal && (
                   <div
                     style={{
                       position: 'fixed',
