@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE =
   import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -23,9 +23,33 @@ const colors = {
   accent: '#c7dd9c',
 };
 
+function classifyTask(text) {
+  const t = text.toLowerCase().trim();
+  if (!t) return 'todo';
+  if (t.length <= 4) return 'habit';
+  if (
+    t.startsWith('call') ||
+    t.startsWith('email') ||
+    t.startsWith('text') ||
+    t.startsWith('buy') ||
+    t.startsWith('send')
+  ) return 'todo';
+  if (
+    t.includes('plan') ||
+    t.includes('find') ||
+    t.includes('best') ||
+    t.includes('cheap') ||
+    t.includes('options') ||
+    t.includes('compare')
+  ) return 'research';
+  if (t.split(' ').length <= 2) return 'todo';
+  return 'research';
+}
+
 function App() {
   const initialWindowWidth =
     typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const mobileAddInputRef = useRef(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [currentInput, setCurrentInput] = useState('');
@@ -39,6 +63,8 @@ function App() {
   const [isMobile, setIsMobile] = useState(initialWindowWidth < 768);
   const [windowWidth, setWindowWidth] = useState(initialWindowWidth);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileTypeTab, setMobileTypeTab] = useState('all');
+  const [mobileBottomTab, setMobileBottomTab] = useState('inbox');
 
   useEffect(() => {
     try {
@@ -126,6 +152,7 @@ function App() {
   const createTask = (title) => ({
     id: Date.now().toString() + Math.random().toString(36).slice(2, 7),
     title: title.trim(),
+    type: classifyTask(title),
     status: 'queued',
     preview: '',
     taskType: '',
@@ -421,6 +448,59 @@ function App() {
   };
 
   const getTaskById = (taskId) => tasks.find((task) => task.id === taskId);
+
+  const getTaskTypeMeta = (type) => {
+    switch (type) {
+      case 'research':
+        return { label: '🤖 AI', bg: '#e8f3ee', color: colors.primary };
+      case 'habit':
+        return { label: '🌿 Habit', bg: '#eef4df', color: '#5f6f2d' };
+      case 'todo':
+      default:
+        return { label: '📝 Task', bg: colors.panelMuted, color: colors.textMuted };
+      }
+  };
+
+  const getMobileBottomTabMatch = (task, tab) => {
+    if (tab === 'done') {
+      return task.status === 'ready' || task.status === 'completed';
+    }
+    if (tab === 'active') {
+      return ['queued', 'running', 'analyzing', 'needs_input', 'failed'].includes(task.status);
+    }
+    return task.status !== 'ready' && task.status !== 'completed';
+  };
+
+  const getMobileTypeTabMatch = (task, tab) => {
+    if (tab === 'ai') return task.type === 'research';
+    if (tab === 'tasks') return task.type === 'todo';
+    if (tab === 'habits') return task.type === 'habit';
+    return true;
+  };
+
+  const markSimpleTaskDone = (taskId) => {
+    const task = getTaskById(taskId);
+    if (!task) return;
+
+    updateTask(taskId, {
+      status: 'ready',
+      preview: 'Completed',
+      result: {
+        ...(task.result || {}),
+        recommendation:
+          task.type === 'habit'
+            ? 'Habit completed for now. Track it again anytime.'
+            : 'Simple task completed.',
+        summary:
+          task.type === 'habit'
+            ? 'Habit completed for now. Track it again anytime.'
+            : 'Simple task completed.',
+        sections: [],
+        steps: [],
+        raw: null,
+      },
+    });
+  };
 
   const getStatusMeta = (status) => {
     switch (status) {
@@ -772,6 +852,29 @@ function App() {
     try {
       const task = getTaskById(taskId);
       if (!task) return;
+      if (task.type !== 'research') {
+        updateTask(taskId, {
+          status: 'ready',
+          preview:
+            task.type === 'habit'
+              ? 'Habit added. Track or complete it anytime.'
+              : 'Simple task added. No AI workflow needed.',
+          result: {
+            recommendation:
+              task.type === 'habit'
+                ? 'Habit added. Track or complete it anytime.'
+                : 'Simple task added. Mark it done when complete.',
+            summary:
+              task.type === 'habit'
+                ? 'Habit added. Track or complete it anytime.'
+                : 'Simple task added. Mark it done when complete.',
+            sections: [],
+            steps: [],
+            raw: null,
+          },
+        });
+        return;
+      }
 
       let workingTask = task;
       let plan = workingTask.result?.steps?.length ? workingTask.result : null;
@@ -2444,6 +2547,11 @@ function App() {
   const runningCount = tasks.filter(
     (task) => task.status === 'running' || task.status === 'analyzing'
   ).length;
+  const mobileVisibleTasks = tasks.filter(
+    (task) =>
+      getMobileTypeTabMatch(task, mobileTypeTab) &&
+      getMobileBottomTabMatch(task, mobileBottomTab)
+  );
 
   const handleSelectTask = (taskId) => {
     setSelectedTaskId(taskId);
@@ -2468,7 +2576,7 @@ function App() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') addTask();
             }}
-            placeholder="Add one task at a time..."
+            placeholder={mobile ? 'Try: "plan trip under $200" or "call mom"' : 'Try: "plan trip under $200" or "call mom"'}
             style={{
               flex: 1,
               minWidth: 0,
@@ -2574,6 +2682,7 @@ function App() {
         ) : (
           tasks.map((task) => {
             const status = getStatusMeta(task.status);
+            const typeMeta = getTaskTypeMeta(task.type);
             const isSelected = task.id === selectedTaskId;
             const canRun = isTaskRunnable(task);
 
@@ -2627,10 +2736,26 @@ function App() {
                         {status.icon}
                       </div>
 
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                        <span
                           style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            backgroundColor: typeMeta.bg,
+                            color: typeMeta.color,
                             fontWeight: 700,
+                            fontSize: 11,
+                          }}
+                        >
+                          {typeMeta.label}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontWeight: 700,
                             color: colors.text,
                             lineHeight: 1.35,
                             marginBottom: 4,
@@ -2686,27 +2811,33 @@ function App() {
 
                     <button
                       type="button"
-                      onClick={() => processTask(task.id)}
-                      disabled={!canRun || task.status === 'running' || task.status === 'analyzing'}
+                      onClick={() => (task.type === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
+                      disabled={(task.type === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.type !== 'research' && task.status === 'running')}
                       style={{
                         border: 'none',
                         borderRadius: 10,
                         padding: '8px 12px',
                         backgroundColor:
-                          canRun && task.status !== 'running' && task.status !== 'analyzing'
+                          ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                            (task.type !== 'research' && task.status !== 'running'))
                             ? colors.primary
                             : '#cbd5c8',
                         color: '#fff',
                         fontWeight: 800,
                         fontSize: 12,
                         cursor:
-                          canRun && task.status !== 'running' && task.status !== 'analyzing'
+                          ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                            (task.type !== 'research' && task.status !== 'running'))
                             ? 'pointer'
                             : 'not-allowed',
                         minWidth: 72,
                       }}
                     >
-                      {task.status === 'running' || task.status === 'analyzing' ? 'Running' : 'Run'}
+                      {task.status === 'running' || task.status === 'analyzing'
+                        ? 'Running'
+                        : task.type === 'research'
+                        ? 'Run'
+                        : 'Done'}
                     </button>
                   </div>
                 </div>
@@ -2749,6 +2880,22 @@ function App() {
                   </div>
 
                   <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '3px 8px',
+                          borderRadius: 999,
+                          backgroundColor: typeMeta.bg,
+                          color: typeMeta.color,
+                          fontWeight: 700,
+                          fontSize: 11,
+                        }}
+                      >
+                        {typeMeta.label}
+                      </span>
+                    </div>
                     <div
                       style={{
                         fontWeight: 700,
@@ -2797,6 +2944,363 @@ function App() {
         )}
       </div>
     </>
+  );
+
+  const renderMobileTaskList = () => (
+    <section
+      style={{
+        backgroundColor: colors.panelBg,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 16,
+        boxShadow: '0 8px 18px rgba(23, 48, 31, 0.05)',
+        padding: 12,
+        width: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          marginBottom: 10,
+          minWidth: 0,
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 800, color: colors.text }}>My Tasks</div>
+        <div
+          style={{
+            display: 'inline-flex',
+            minWidth: 26,
+            height: 26,
+            padding: '0 9px',
+            borderRadius: 999,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.panelMuted,
+            color: colors.text,
+            fontSize: 12,
+            fontWeight: 800,
+            flexShrink: 0,
+          }}
+        >
+          {mobileVisibleTasks.length}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 8, marginBottom: 10, minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 8, minWidth: 0 }}>
+          <input
+            ref={mobileAddInputRef}
+            value={currentInput}
+            onChange={(e) => setCurrentInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addTask();
+            }}
+            placeholder="Search or add a task"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: '11px 12px',
+              borderRadius: 12,
+              border: `1px solid ${colors.border}`,
+              outline: 'none',
+              fontSize: 14,
+              backgroundColor: '#fbfcf8',
+              boxSizing: 'border-box',
+            }}
+          />
+          <button
+            onClick={addTask}
+            disabled={!currentInput.trim()}
+            style={{
+              border: 'none',
+              borderRadius: 12,
+              padding: '0 14px',
+              minWidth: 72,
+              backgroundColor: currentInput.trim() ? colors.primary : '#cbd5c8',
+              color: '#fff',
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: currentInput.trim() ? 'pointer' : 'not-allowed',
+              boxSizing: 'border-box',
+            }}
+          >
+            Add
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'ai', label: 'AI' },
+            { id: 'tasks', label: 'Tasks' },
+            { id: 'habits', label: 'Habits' },
+          ].map((tab) => {
+            const active = mobileTypeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setMobileTypeTab(tab.id)}
+                style={{
+                  border: active ? `1px solid ${colors.primary}` : `1px solid ${colors.border}`,
+                  backgroundColor: active ? '#eef7f2' : '#fff',
+                  color: active ? colors.primary : colors.textMuted,
+                  borderRadius: 999,
+                  padding: '8px 11px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 8,
+          marginBottom: 10,
+          minWidth: 0,
+        }}
+      >
+        {[
+          { label: 'Queued', value: queuedCount },
+          { label: 'Running', value: runningCount },
+          { label: 'Ready', value: readyCount },
+        ].map((item) => (
+          <div
+            key={item.label}
+            style={{
+              backgroundColor: colors.panelMuted,
+              borderRadius: 12,
+              padding: 8,
+              border: `1px solid ${colors.border}`,
+              boxSizing: 'border-box',
+              minWidth: 0,
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800 }}>{item.value}</div>
+            <div style={{ color: colors.textMuted, fontSize: 11 }}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={runAllTasks}
+        disabled={runningAll || queuedCount === 0}
+        style={{
+          width: '100%',
+          border: 'none',
+          borderRadius: 12,
+          padding: '12px 14px',
+          backgroundColor:
+            runningAll || queuedCount === 0 ? '#cbd5c8' : colors.success,
+          color: '#fff',
+          fontWeight: 800,
+          fontSize: 14,
+          cursor: runningAll || queuedCount === 0 ? 'not-allowed' : 'pointer',
+          marginBottom: 10,
+          boxSizing: 'border-box',
+        }}
+      >
+        {runningAll ? 'Running tasks...' : 'Run My List'}
+      </button>
+
+      <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+        {mobileVisibleTasks.length === 0 ? (
+          <div
+            style={{
+              border: `1px dashed ${colors.border}`,
+              borderRadius: 14,
+              padding: 18,
+              textAlign: 'center',
+              color: colors.textMuted,
+              backgroundColor: colors.panelMuted,
+              boxSizing: 'border-box',
+            }}
+          >
+            <div style={{ color: colors.text, fontWeight: 700, marginBottom: 4 }}>No tasks yet</div>
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              Add your first task to get started.
+            </div>
+          </div>
+        ) : (
+          mobileVisibleTasks.map((task) => {
+            const status = getStatusMeta(task.status);
+            const typeMeta = getTaskTypeMeta(task.type);
+            const isSelected = task.id === selectedTaskId;
+            const canRun = isTaskRunnable(task);
+
+            return (
+              <div
+                key={task.id}
+                style={{
+                  border: isSelected
+                    ? `2px solid ${colors.primary}`
+                    : `1px solid ${colors.border}`,
+                  borderRadius: 14,
+                  backgroundColor: isSelected ? '#f3f8f4' : colors.panelBg,
+                  padding: 10,
+                  boxShadow: isSelected ? '0 10px 24px rgba(29, 107, 79, 0.10)' : 'none',
+                  boxSizing: 'border-box',
+                  width: '100%',
+                  minWidth: 0,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSelectTask(task.id)}
+                  style={{
+                    width: '100%',
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    margin: 0,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 999,
+                        backgroundColor: status.bg,
+                        color: status.color,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {status.icon}
+                    </div>
+
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            backgroundColor: typeMeta.bg,
+                            color: typeMeta.color,
+                            fontWeight: 700,
+                            fontSize: 11,
+                          }}
+                        >
+                          {typeMeta.label}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          color: colors.text,
+                          lineHeight: 1.35,
+                          marginBottom: 4,
+                          fontSize: 14,
+                        }}
+                      >
+                        {task.title}
+                      </div>
+
+                      <div
+                        style={{
+                          color: colors.textMuted,
+                          fontSize: 12,
+                          lineHeight: 1.4,
+                          marginBottom: 8,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {task.preview || status.label}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    marginTop: 4,
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '3px 8px',
+                      borderRadius: 999,
+                      backgroundColor: status.bg,
+                      color: status.color,
+                      fontWeight: 700,
+                      fontSize: 11,
+                    }}
+                  >
+                    {status.label}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => (task.type === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
+                    disabled={(task.type === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.type !== 'research' && task.status === 'running')}
+                    style={{
+                      border: 'none',
+                      borderRadius: 10,
+                      padding: '8px 12px',
+                      backgroundColor:
+                        ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                          (task.type !== 'research' && task.status !== 'running'))
+                          ? colors.primary
+                          : '#cbd5c8',
+                      color: '#fff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor:
+                        ((task.type === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                          (task.type !== 'research' && task.status !== 'running'))
+                          ? 'pointer'
+                          : 'not-allowed',
+                      minWidth: 72,
+                    }}
+                  >
+                    {task.status === 'running' || task.status === 'analyzing'
+                      ? 'Running'
+                      : task.type === 'research'
+                      ? 'Run'
+                      : 'Done'}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
   );
 
   return (
@@ -2861,102 +3365,10 @@ function App() {
         ) : null}
 
         {isMobile ? (
-          <div style={{ display: 'grid', gap: 10, width: '100%', minWidth: 0, overflowX: 'hidden', boxSizing: 'border-box' }}>
-            <section
-              style={{
-                backgroundColor: colors.panelBg,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 16,
-                boxShadow: '0 8px 18px rgba(23, 48, 31, 0.05)',
-                overflow: 'visible',
-                width: '100%',
-                minWidth: 0,
-                boxSizing: 'border-box',
-              }}
-            >
-              <button
-                onClick={() => setMobileMenuOpen((prev) => !prev)}
-                style={{
-                  width: '100%',
-                  border: 'none',
-                  backgroundColor: mobileMenuOpen ? '#eef4ef' : colors.panelBg,
-                  padding: '13px 14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  color: colors.text,
-                  fontWeight: 800,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <span>My Tasks</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      minWidth: 24,
-                      height: 24,
-                      padding: '0 8px',
-                      borderRadius: 999,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: colors.panelMuted,
-                      color: colors.text,
-                      fontSize: 12,
-                      fontWeight: 800,
-                    }}
-                  >
-                    {tasks.length}
-                  </span>
-                  <span
-                    style={{
-                      color: colors.textMuted,
-                      fontSize: 16,
-                      transform: mobileMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 160ms ease',
-                      lineHeight: 1,
-                    }}
-                  >
-                    ˅
-                  </span>
-                </span>
-              </button>
+          <div style={{ display: 'grid', gap: 10, width: '100%', minWidth: 0, overflowX: 'hidden', boxSizing: 'border-box', paddingBottom: 78 }}>
+            {renderMobileTaskList()}
 
-              {mobileMenuOpen ? (
-                <div
-                  style={{
-                    padding: '0 14px 14px',
-                    borderTop: `1px solid ${colors.border}`,
-                    backgroundColor: '#fcfcf9',
-                    width: '100%',
-                    minWidth: 0,
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  {renderTaskListPanel(true)}
-                </div>
-              ) : selectedTask ? (
-                <div
-                  style={{
-                    padding: '0 14px 14px',
-                    borderTop: `1px solid ${colors.border}`,
-                    color: colors.textMuted,
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    backgroundColor: '#fcfcf9',
-                    width: '100%',
-                    minWidth: 0,
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  Viewing: <span style={{ color: colors.text, fontWeight: 700 }}>{selectedTask.title}</span>
-                </div>
-              ) : null}
-            </section>
-
-            <main style={mainStyle}>
+            <main style={{ ...mainStyle, borderRadius: 14, padding: 12, boxShadow: '0 6px 14px rgba(23, 48, 31, 0.04)' }}>
               {!selectedTask ? (
                 <div
                   style={{
@@ -3031,6 +3443,20 @@ function App() {
                         >
                           {getStatusMeta(selectedTask.status).label}
                         </span>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '6px 10px',
+                            borderRadius: 999,
+                            backgroundColor: getTaskTypeMeta(selectedTask.type).bg,
+                            color: getTaskTypeMeta(selectedTask.type).color,
+                            fontWeight: 700,
+                            fontSize: 12,
+                          }}
+                        >
+                          {getTaskTypeMeta(selectedTask.type).label}
+                        </span>
                         {selectedTask.revisions && selectedTask.revisions.length > 0 && (
                           <button
                             onClick={() =>
@@ -3057,7 +3483,7 @@ function App() {
                     </div>
 
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {(selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
+                      {selectedTask.type === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
                         <button
                           onClick={() => processTask(selectedTask.id)}
                           style={{
@@ -3075,7 +3501,7 @@ function App() {
                         </button>
                       ) : null}
 
-                      {selectedTask.status === 'ready' ? (
+                      {selectedTask.type === 'research' && selectedTask.status === 'ready' ? (
                         <button
                           onClick={() => setShowCustomizeModal(true)}
                           style={{
@@ -3095,7 +3521,39 @@ function App() {
                     </div>
                   </div>
 
-                  {selectedTask.status === 'queued' ? (
+                  {selectedTask.type !== 'research' ? (
+                    <div
+                      style={{
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 14,
+                        padding: 12,
+                        backgroundColor: colors.panelMuted,
+                        color: colors.text,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTask.title}</div>
+                      <div style={{ color: colors.textMuted, lineHeight: 1.5, fontSize: 14, marginBottom: 12 }}>
+                        {selectedTask.type === 'habit'
+                          ? 'Habit item. Track it daily.'
+                          : 'Simple task. Complete it when done.'}
+                      </div>
+                      <button
+                        onClick={() => markSimpleTaskDone(selectedTask.id)}
+                        style={{
+                          border: 'none',
+                          borderRadius: 12,
+                          padding: '12px 16px',
+                          backgroundColor: colors.primary,
+                          color: '#fff',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          width: '100%',
+                        }}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  ) : selectedTask.status === 'queued' ? (
                     <div
                       style={{
                         border: `1px solid ${colors.border}`,
@@ -3136,7 +3594,7 @@ function App() {
                       {showHistory[selectedTask.id] && renderTaskHistory(selectedTask)}
                       {renderTaskResult(selectedTask.result, selectedTask.id)}
 
-                      <div
+                      {selectedTask.type === 'research' ? <div
                         style={{
                           borderTop: `1px solid ${colors.border}`,
                           paddingTop: 16,
@@ -3224,11 +3682,11 @@ function App() {
                             Send
                           </button>
                         </form>
-                      </div>
+                      </div> : null}
                     </>
                   )}
 
-                  {showCustomizeModal && (
+                  {selectedTask.type === 'research' && showCustomizeModal && (
                     <div
                       style={{
                         position: 'fixed',
@@ -3335,6 +3793,78 @@ function App() {
                 </>
               )}
             </main>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(true);
+                mobileAddInputRef.current?.focus();
+              }}
+              style={{
+                position: 'fixed',
+                right: 16,
+                bottom: 78,
+                width: 52,
+                height: 52,
+                borderRadius: 999,
+                border: 'none',
+                backgroundColor: colors.primary,
+                color: '#fff',
+                fontSize: 28,
+                lineHeight: 1,
+                fontWeight: 500,
+                boxShadow: '0 14px 28px rgba(29, 107, 79, 0.24)',
+                cursor: 'pointer',
+                zIndex: 30,
+              }}
+              aria-label="Add task"
+            >
+              +
+            </button>
+
+            <div
+              style={{
+                position: 'fixed',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 8,
+                padding: '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))',
+                background: 'rgba(243,245,241,0.96)',
+                backdropFilter: 'blur(10px)',
+                borderTop: `1px solid ${colors.border}`,
+                zIndex: 25,
+              }}
+            >
+              {[
+                { id: 'inbox', label: 'Inbox' },
+                { id: 'active', label: 'Active' },
+                { id: 'done', label: 'Done' },
+              ].map((tab) => {
+                const active = mobileBottomTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setMobileBottomTab(tab.id)}
+                    style={{
+                      border: active ? `1px solid ${colors.primary}` : `1px solid ${colors.border}`,
+                      backgroundColor: active ? '#eef7f2' : '#fff',
+                      color: active ? colors.primary : colors.textMuted,
+                      borderRadius: 12,
+                      padding: '10px 8px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div style={layoutStyle}>
@@ -3382,7 +3912,7 @@ function App() {
                     <h2 style={{ margin: 0, fontSize: 30, lineHeight: 1.15 }}>
                       {selectedTask.title}
                     </h2>
-                    <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <span
                         style={{
                           display: 'inline-flex',
@@ -3396,6 +3926,20 @@ function App() {
                         }}
                       >
                         {getStatusMeta(selectedTask.status).label}
+                      </span>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '6px 10px',
+                          borderRadius: 999,
+                          backgroundColor: getTaskTypeMeta(selectedTask.type).bg,
+                          color: getTaskTypeMeta(selectedTask.type).color,
+                          fontWeight: 700,
+                          fontSize: 12,
+                        }}
+                      >
+                        {getTaskTypeMeta(selectedTask.type).label}
                       </span>
                       {selectedTask.revisions && selectedTask.revisions.length > 0 && (
                         <button
@@ -3422,7 +3966,7 @@ function App() {
                     </div>
                   </div>
 
-                  {selectedTask.status === 'queued' || selectedTask.status === 'failed' ? (
+                  {selectedTask.type === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed') ? (
                     <button
                       onClick={() => processTask(selectedTask.id)}
                       style={{
@@ -3440,7 +3984,7 @@ function App() {
                     </button>
                   ) : null}
 
-                  {selectedTask.status === 'ready' ? (
+                  {selectedTask.type === 'research' && selectedTask.status === 'ready' ? (
                     <button
                       onClick={() => setShowCustomizeModal(true)}
                       style={{
@@ -3459,7 +4003,38 @@ function App() {
                   ) : null}
                 </div>
 
-                {selectedTask.status === 'queued' ? (
+                {selectedTask.type !== 'research' ? (
+                  <div
+                    style={{
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 18,
+                      padding: isMobile ? 14 : 18,
+                      backgroundColor: colors.panelMuted,
+                      color: colors.text,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTask.title}</div>
+                    <div style={{ color: colors.textMuted, lineHeight: 1.6, marginBottom: 12 }}>
+                      {selectedTask.type === 'habit'
+                        ? 'Habit item. Track it daily.'
+                        : 'Simple task. Complete it when done.'}
+                    </div>
+                    <button
+                      onClick={() => markSimpleTaskDone(selectedTask.id)}
+                      style={{
+                        border: 'none',
+                        borderRadius: 12,
+                        padding: '12px 16px',
+                        backgroundColor: colors.primary,
+                        color: '#fff',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                ) : selectedTask.status === 'queued' ? (
                   <div
                     style={{
                       border: `1px solid ${colors.border}`,
@@ -3500,7 +4075,7 @@ function App() {
                     {showHistory[selectedTask.id] && renderTaskHistory(selectedTask)}
                     {renderTaskResult(selectedTask.result, selectedTask.id)}
 
-                    <div
+                    {selectedTask.type === 'research' ? <div
                       style={{
                         borderTop: `1px solid ${colors.border}`,
                         paddingTop: 22,
@@ -3588,11 +4163,11 @@ function App() {
                           Send
                         </button>
                       </form>
-                    </div>
+                    </div> : null}
                   </>
                 )}
 
-                {showCustomizeModal && (
+                {selectedTask.type === 'research' && showCustomizeModal && (
                   <div
                     style={{
                       position: 'fixed',
