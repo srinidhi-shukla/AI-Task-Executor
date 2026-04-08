@@ -36,7 +36,7 @@ function classifyTaskType(text) {
     t.includes('before ') ||
     t.includes('every day') ||
     t.includes('daily')
-  ) return 'habit';
+  ) return 'simple';
 
   if (
     t.startsWith('call') ||
@@ -45,9 +45,22 @@ function classifyTaskType(text) {
     t.startsWith('send') ||
     t.startsWith('buy') ||
     t.startsWith('pay') ||
-    t.startsWith('book') ||
     t.split(' ').length <= 2
-  ) return 'todo';
+  ) return 'simple';
+
+  if (
+    t.startsWith('book') ||
+    t.includes('restaurant') ||
+    t.includes('hotel') ||
+    t.includes('flight') ||
+    t.includes('stay') ||
+    t.includes('near me') ||
+    t.includes('nearby') ||
+    t.includes('reservation') ||
+    t.includes('table for') ||
+    t.includes('gift') ||
+    t.includes('shop for')
+  ) return 'assisted';
 
   if (
     t.includes('plan') ||
@@ -59,10 +72,94 @@ function classifyTaskType(text) {
     t.includes('recommend') ||
     t.includes('under $') ||
     t.includes('itinerary')
-  ) return 'research';
+  ) return 'ai';
 
-  return 'todo';
+  return 'ai';
 }
+
+const normalizeTaskType = (type) => {
+  if (type === 'research') return 'ai';
+  if (type === 'todo' || type === 'habit') return 'simple';
+  if (type === 'simple' || type === 'assisted' || type === 'ai') return type;
+  return 'ai';
+};
+
+const isSimpleTaskType = (type) => normalizeTaskType(type) === 'simple';
+const isAssistedTaskType = (type) => normalizeTaskType(type) === 'assisted';
+const isAiTaskType = (type) => normalizeTaskType(type) === 'ai';
+
+const normalizeExternalUrl = (url) => {
+  if (typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  const withProtocol =
+    /^https?:\/\//i.test(trimmed) ? trimmed : /^[\w.-]+\.[a-z]{2,}/i.test(trimmed) ? `https://${trimmed}` : '';
+  if (!withProtocol) return '';
+
+  try {
+    const parsed = new URL(withProtocol);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+};
+
+const getSafeLinkLabel = (label) => {
+  return typeof label === 'string' && label.trim() ? label.trim() : '';
+};
+
+const getLinkDisplayLabel = (url, label) => {
+  const safeLabel = getSafeLinkLabel(label);
+  if (safeLabel) return safeLabel;
+
+  const safeUrl = normalizeExternalUrl(url);
+  if (!safeUrl) return 'Open link';
+
+  try {
+    return new URL(safeUrl).hostname.replace(/^www\./, '');
+  } catch {
+    return 'Open link';
+  }
+};
+
+const getSuggestionSnapshot = (result) => {
+  if (!result || typeof result !== 'object') return null;
+  const bestOption = result.bestOption || result.items?.[0] || null;
+  const primaryAction = Array.isArray(result.actions) ? result.actions[0] : null;
+
+  return {
+    title: bestOption?.label || '',
+    price: bestOption?.price || '',
+    time: bestOption?.time || '',
+    provider:
+      (Array.isArray(bestOption?.metadata) && bestOption.metadata[0]) ||
+      bestOption?.subtitle ||
+      '',
+    link: normalizeExternalUrl(bestOption?.link || primaryAction?.url || ''),
+  };
+};
+
+const hasMeaningfulSuggestionChange = (prevSnapshot, nextSnapshot) => {
+  if (!prevSnapshot || !nextSnapshot) return false;
+  return ['title', 'price', 'time', 'provider', 'link'].some(
+    (key) => (prevSnapshot[key] || '') !== (nextSnapshot[key] || '')
+  );
+};
+
+const getSimpleTaskReminderMessage = (task) => {
+  const title = String(task?.title || '').toLowerCase();
+  if (title.includes('drink water')) {
+    return 'Reminder: drink water. Even mild dehydration can affect focus and energy.';
+  }
+  if (title.includes('workout') || title.includes('walk')) {
+    return 'Reminder: a short workout still counts. Consistency beats intensity.';
+  }
+  if (title.includes('call')) {
+    return `Reminder: ${task.title}. A quick call can mean a lot.`;
+  }
+  return `Reminder: ${task?.title || 'Task'}. Small steps still move it forward.`;
+};
 
 function App() {
   const initialWindowWidth =
@@ -83,6 +180,8 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileTypeTab, setMobileTypeTab] = useState('all');
   const [mobileBottomTab, setMobileBottomTab] = useState('inbox');
+  const [showTaskDetails, setShowTaskDetails] = useState({});
+  const [reminderBanner, setReminderBanner] = useState(null);
 
   useEffect(() => {
     try {
@@ -116,6 +215,48 @@ function App() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  useEffect(() => {
+    if (!reminderBanner) return undefined;
+    const timeoutId = window.setTimeout(() => setReminderBanner(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [reminderBanner]);
+
+  useEffect(() => {
+    const maybeSendReminder = (task) => {
+      if (!task?.reminderEnabled || !task?.reminderTime) return;
+
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const minuteKey = `${now.toISOString().slice(0, 10)} ${hh}:${mm}`;
+
+      if (task.lastReminderSent === minuteKey || task.reminderTime !== `${hh}:${mm}`) return;
+
+      const bestLabel =
+        task.result?.bestOption?.label ||
+        (Array.isArray(task.result?.summary) ? task.result.summary[0] : task.result?.summary) ||
+        task.title;
+      const message = isAiTaskType(task.taskType)
+        ? `Reminder: ${task.title}. Best suggestion: ${bestLabel}.`
+        : getSimpleTaskReminderMessage(task);
+
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('TuDu reminder', { body: message });
+      } else {
+        setReminderBanner(message);
+      }
+
+      updateTask(task.id, { lastReminderSent: minuteKey });
+    };
+
+    const intervalId = window.setInterval(() => {
+      tasks.forEach(maybeSendReminder);
+    }, 30000);
+
+    tasks.forEach(maybeSendReminder);
+    return () => window.clearInterval(intervalId);
+  }, [tasks]);
 
   const isSmallDesktop = !isMobile && windowWidth < 1024;
   const isMediumDesktop = !isMobile && windowWidth >= 1024 && windowWidth < 1440;
@@ -177,6 +318,11 @@ function App() {
     status: 'queued',
     preview: '',
     taskType: classifyTaskType(title),
+    reminderEnabled: false,
+    reminderTime: '09:00',
+    lastReminderSent: '',
+    suggestionSnapshot: null,
+    hasSuggestionUpdate: false,
     result: {
       recommendation: '',
       summary: '',
@@ -341,7 +487,7 @@ function App() {
       price: typeof item.price === 'string' ? item.price : '',
       rating: typeof item.rating === 'string' ? item.rating : '',
       thumbnail: typeof item.thumbnail === 'string' ? item.thumbnail : '',
-      link: typeof item.link === 'string' ? item.link : '',
+      link: normalizeExternalUrl(item.link),
       checked: typeof item.checked === 'boolean' ? item.checked : false,
       time: typeof item.time === 'string' ? item.time : '',
       value: typeof item.value === 'string' ? item.value : '',
@@ -366,7 +512,7 @@ function App() {
         ? result.items.map(normalizeListingItem).filter(Boolean)
         : [],
       links: Array.isArray(result?.links)
-        ? result.links.filter((link) => typeof link === 'string' && link.trim())
+        ? result.links.map(normalizeExternalUrl).filter(Boolean)
         : [],
       summary: Array.isArray(result?.summary)
         ? result.summary.filter((item) => typeof item === 'string' && item.trim())
@@ -386,10 +532,18 @@ function App() {
             (action) =>
               action &&
               typeof action === 'object' &&
-              typeof action.url === 'string' &&
-              action.url.trim()
-          )
-        : [],
+              normalizeExternalUrl(action.url)
+        )
+            .map((action) => ({
+              ...action,
+              label: getSafeLinkLabel(action.label),
+              url: normalizeExternalUrl(action.url),
+            }))
+      : [],
+      confidence:
+        typeof result?.confidence === 'string' && result.confidence.trim()
+          ? result.confidence.trim()
+          : '',
       timeline: Array.isArray(result?.timeline) ? result.timeline : [],
       budget: Array.isArray(result?.budget) ? result.budget : [],
       notes:
@@ -426,6 +580,16 @@ function App() {
   };
 
   const updateTask = (taskId, updates, changeNote) => {
+    const currentTask = getTaskById(taskId);
+    let suggestionChanged = false;
+    let nextSnapshot = null;
+
+    if (currentTask?.result && updates?.result) {
+      const previousSnapshot = getSuggestionSnapshot(currentTask.result);
+      nextSnapshot = getSuggestionSnapshot(updates.result);
+      suggestionChanged = hasMeaningfulSuggestionChange(previousSnapshot, nextSnapshot);
+    }
+
     setTasks((prev) =>
       prev.map((task) => {
         if (task.id !== taskId) return task;
@@ -440,10 +604,30 @@ function App() {
         return {
           ...updatedTask,
           ...updates,
+          suggestionSnapshot:
+            nextSnapshot || updates?.suggestionSnapshot || updatedTask.suggestionSnapshot || null,
+          hasSuggestionUpdate:
+            typeof updates?.hasSuggestionUpdate === 'boolean'
+              ? updates.hasSuggestionUpdate
+              : suggestionChanged
+              ? true
+              : updatedTask.hasSuggestionUpdate || false,
           updatedAt: new Date().toISOString(),
         };
       })
     );
+
+    if (suggestionChanged) {
+      const message = isAiTaskType(currentTask.taskType)
+        ? `Your best suggestion changed for "${currentTask.title}".`
+        : `Updated suggestion available for "${currentTask.title}".`;
+
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('TuDu update', { body: message });
+      } else {
+        setReminderBanner(message);
+      }
+    }
   };
 
   const updateTaskStep = (taskId, stepId, updates) => {
@@ -471,14 +655,14 @@ function App() {
   const getTaskById = (taskId) => tasks.find((task) => task.id === taskId);
 
   const getTaskTypeMeta = (type) => {
-    switch (type) {
-      case 'research':
+    switch (normalizeTaskType(type)) {
+      case 'ai':
         return { label: '🤖 AI', bg: '#e8f3ee', color: colors.primary };
-      case 'habit':
-        return { label: '🌿 Habit', bg: '#eef4df', color: '#5f6f2d' };
-      case 'todo':
+      case 'assisted':
+        return { label: '✨ Assisted', bg: '#f5efe2', color: '#8a5a16' };
+      case 'simple':
       default:
-        return { label: '📝 Task', bg: colors.panelMuted, color: colors.textMuted };
+        return { label: '📝 Simple', bg: colors.panelMuted, color: colors.textMuted };
       }
   };
 
@@ -493,9 +677,10 @@ function App() {
   };
 
   const getMobileTypeTabMatch = (task, tab) => {
-    if (tab === 'ai') return task.taskType === 'research';
-    if (tab === 'tasks') return task.taskType === 'todo';
-    if (tab === 'habits') return task.taskType === 'habit';
+    const taskType = normalizeTaskType(task.taskType);
+    if (tab === 'ai') return taskType === 'ai' || taskType === 'assisted';
+    if (tab === 'tasks') return taskType === 'simple';
+    if (tab === 'habits') return false;
     return true;
   };
 
@@ -509,13 +694,11 @@ function App() {
       result: {
         ...(task.result || {}),
         recommendation:
-          task.taskType === 'habit'
-            ? 'Habit completed for now. Track it again anytime.'
-            : 'Simple task completed.',
+          'Simple task completed.',
         summary:
-          task.taskType === 'habit'
-            ? 'Habit completed for now. Track it again anytime.'
-            : 'Simple task completed.',
+          'Simple task completed.',
+        assumptions: ['Marked done manually.'],
+        confidence: 'High',
         sections: [],
         steps: [],
         raw: null,
@@ -760,9 +943,9 @@ function App() {
       status: 'running',
       preview: preview + (preview.length >= 110 ? '...' : ''),
       taskType:
-        data?.taskType && ['research', 'todo', 'habit'].includes(data.taskType)
+        data?.taskType && ['simple', 'assisted', 'ai'].includes(data.taskType)
           ? data.taskType
-          : task.taskType || 'research',
+          : normalizeTaskType(task.taskType || 'ai'),
       result,
     });
 
@@ -876,25 +1059,82 @@ function App() {
     try {
       const task = getTaskById(taskId);
       if (!task) return;
-      if (task.taskType === 'todo' || task.taskType === 'habit') {
+      if (isSimpleTaskType(task.taskType)) {
         updateTask(taskId, {
           status: 'ready',
-          preview:
-            task.taskType === 'habit'
-              ? 'Habit added.'
-              : 'Simple task added.',
+          preview: 'Simple task added.',
           result: {
-            recommendation:
-              task.taskType === 'habit'
-                ? 'Habit added.'
-                : 'Simple task added. Mark it done when complete.',
-            summary:
-              task.taskType === 'habit'
-                ? 'Habit added.'
-                : 'Simple task added. Mark it done when complete.',
+            recommendation: ['Best option: do this directly.', 'Next action: mark it done when complete.'],
+            summary: ['Best option: do this directly.', 'Next action: mark it done when complete.'],
+            assumptions: ['This looks like a simple task that does not need AI help.'],
+            confidence: 'High',
             sections: [],
             steps: [],
             raw: null,
+          },
+        });
+        return;
+      }
+
+      if (isAssistedTaskType(task.taskType)) {
+        updateTask(taskId, { status: 'running' });
+        const response = await fetch(`${API_BASE}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              {
+                role: 'user',
+                content: `Give a lightweight recommendation for this task: "${task.title}".
+
+Return JSON only:
+{
+  "summary": ["Best option: ...", "Next action: ..."],
+  "bestOption": { "label": "...", "subtitle": "...", "price": "...", "rating": "...", "link": "..." },
+  "alternatives": [],
+  "actions": [{ "label": "Open", "url": "https://..." }],
+  "assumptions": ["..."],
+  "confidence": "Low | Medium | High"
+}
+
+Rules:
+- 1 best option
+- 1 or 2 alternatives max
+- concise and actionable
+- no workflow steps`,
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const normalized = normalizeStepResult(data, task.title);
+        const summaryBullets =
+          Array.isArray(normalized.summary) && normalized.summary.length > 0
+            ? normalized.summary.slice(0, 3)
+            : ['Best option: review the top suggestion.', 'Next action: open the recommended source.'];
+
+        updateTask(taskId, {
+          status: 'ready',
+          preview: summaryBullets[0] || 'Assisted suggestion ready.',
+          result: {
+            recommendation: summaryBullets,
+            summary: summaryBullets,
+            bestOption: normalized.bestOption || null,
+            alternatives: Array.isArray(normalized.alternatives) ? normalized.alternatives.slice(0, 2) : [],
+            actions: Array.isArray(normalized.actions) ? normalized.actions.slice(0, 2) : [],
+            assumptions:
+              Array.isArray(normalized.assumptions) && normalized.assumptions.length > 0
+                ? normalized.assumptions
+                : ['Based on your current request and standard preferences.'],
+            confidence: normalized.confidence || 'Medium',
+            sections: [],
+            steps: [],
+            raw: data,
           },
         });
         return;
@@ -909,7 +1149,7 @@ function App() {
           workingTask = {
             ...workingTask,
             status: 'running',
-            taskType: workingTask.taskType || 'general',
+            taskType: normalizeTaskType(workingTask.taskType || 'ai'),
             result: plan,
           };
         }
@@ -1419,7 +1659,7 @@ function App() {
                       fontSize: 13,
                     }}
                   >
-                    Open source
+                    {getLinkDisplayLabel(item.link, item.ctaLabel)}
                   </span>
                 </div>
               ) : null}
@@ -1465,7 +1705,7 @@ function App() {
       ...(Array.isArray(items) ? items.map((item) => item.link).filter(Boolean) : []),
       ...(Array.isArray(links) ? links : []),
     ];
-    const uniqueLinks = [...new Set(mergedLinks)];
+    const uniqueLinks = [...new Set(mergedLinks.map(normalizeExternalUrl).filter(Boolean))];
     if (!uniqueLinks.length) return null;
 
     return (
@@ -1488,7 +1728,7 @@ function App() {
               fontWeight: 700,
             }}
           >
-            {link}
+            {getLinkDisplayLabel(link, '')}
           </a>
         ))}
       </div>
@@ -1890,9 +2130,9 @@ function App() {
           </div>
         )}
 
-        {bestOption.link && (
+        {normalizeExternalUrl(bestOption.link) && (
           <a
-            href={bestOption.link}
+            href={normalizeExternalUrl(bestOption.link)}
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -1908,7 +2148,7 @@ function App() {
               boxShadow: '0 4px 12px rgba(29, 107, 79, 0.3)',
             }}
           >
-            Book now
+            {getLinkDisplayLabel(bestOption.link, bestOption.ctaLabel)}
           </a>
         )}
       </div>
@@ -1956,9 +2196,9 @@ function App() {
                   </div>
                 )}
               </div>
-              {item.link && (
+              {normalizeExternalUrl(item.link) && (
                 <a
-                  href={item.link}
+                  href={normalizeExternalUrl(item.link)}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -1974,7 +2214,7 @@ function App() {
                     marginTop: 10,
                   }}
                 >
-                  View option
+                  {getLinkDisplayLabel(item.link, item.ctaLabel)}
                 </a>
               )}
             </div>
@@ -2039,8 +2279,89 @@ function App() {
     );
   };
 
+  const renderConfidence = (confidence) => {
+    if (!confidence) return null;
+
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: colors.textMuted,
+            marginBottom: 8,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          Confidence
+        </div>
+        <div style={{ color: colors.text, fontSize: 14, fontWeight: 700 }}>{confidence}</div>
+      </div>
+    );
+  };
+
+  const renderReminderControls = (task) => {
+    if (!task) return null;
+
+    return (
+      <div
+        style={{
+          border: `1px solid ${colors.border}`,
+          borderRadius: 12,
+          padding: 12,
+          backgroundColor: colors.panelMuted,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ fontWeight: 700, color: colors.text, marginBottom: 10 }}>Reminder</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!task.reminderEnabled && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+                try {
+                  await Notification.requestPermission();
+                } catch (err) {
+                  console.error('Notification permission error', err);
+                }
+              }
+              updateTask(task.id, { reminderEnabled: !task.reminderEnabled });
+            }}
+            style={{
+              border: 'none',
+              borderRadius: 10,
+              padding: '10px 14px',
+              backgroundColor: task.reminderEnabled ? colors.success : colors.primary,
+              color: '#fff',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            {task.reminderEnabled ? 'Reminder on' : 'Enable reminder'}
+          </button>
+          <input
+            type="time"
+            value={task.reminderTime || '09:00'}
+            onChange={(e) => updateTask(task.id, { reminderTime: e.target.value })}
+            style={{
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              padding: '9px 12px',
+              backgroundColor: '#fff',
+              color: colors.text,
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   const renderActions = (actions) => {
     if (!Array.isArray(actions) || actions.length === 0) return null;
+
+    const validActions = actions.filter((action) => normalizeExternalUrl(action.url));
+    if (validActions.length === 0) return null;
 
     return (
       <div style={{ marginBottom: 16 }}>
@@ -2048,10 +2369,10 @@ function App() {
           Actions
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {actions.map((action, index) => (
+          {validActions.map((action, index) => (
             <a
               key={index}
-              href={action.url}
+              href={normalizeExternalUrl(action.url)}
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -2067,7 +2388,7 @@ function App() {
                 boxShadow: '0 4px 12px rgba(29, 107, 79, 0.2)',
               }}
             >
-              {action.label}
+              {getLinkDisplayLabel(action.url, action.label)}
             </a>
           ))}
         </div>
@@ -2383,6 +2704,34 @@ function App() {
   const renderTaskResult = (result, taskId) => {
     if (!result) return null;
 
+    const summaryBullets = Array.isArray(result.recommendation || result.summary)
+      ? (result.recommendation || result.summary).slice(0, 3)
+      : typeof (result.recommendation || result.summary) === 'string' && (result.recommendation || result.summary).trim()
+      ? [result.recommendation || result.summary]
+      : [];
+    const nextAction =
+      Array.isArray(result.actions) && result.actions.length > 0
+        ? result.actions.find((action) => normalizeExternalUrl(action?.url))
+        : null;
+    const assumptions =
+      Array.isArray(result.assumptions) && result.assumptions.length > 0
+        ? result.assumptions
+        : ['Based on the current request and available context.'];
+    const confidence =
+      typeof result.confidence === 'string' && result.confidence.trim()
+        ? result.confidence
+        : Array.isArray(result.steps) && result.steps.length > 0
+        ? 'Medium'
+        : 'High';
+    const hasDetails =
+      (Array.isArray(result.steps) && result.steps.length > 0) ||
+      (Array.isArray(result.sections) && result.sections.length > 0) ||
+      (Array.isArray(result.alternatives) && result.alternatives.length > 0) ||
+      (Array.isArray(result.highlights) && result.highlights.length > 0) ||
+      (Array.isArray(result.timeline) && result.timeline.length > 0) ||
+      (Array.isArray(result.budget) && result.budget.length > 0);
+    const detailsOpen = !!showTaskDetails[taskId];
+
     return (
       <>
         <div
@@ -2407,9 +2756,9 @@ function App() {
           >
             Final summary
           </div>
-          {Array.isArray(result.recommendation || result.summary) ? (
+          {summaryBullets.length > 0 ? (
             <div style={{ display: 'grid', gap: 8 }}>
-              {(result.recommendation || result.summary).slice(0, 3).map((bullet, index) => (
+              {summaryBullets.map((bullet, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ color: colors.primary, fontSize: 16, fontWeight: 800, marginTop: -2 }}>•</div>
                   <div style={{ fontSize: 16, color: colors.text, lineHeight: 1.6 }}>
@@ -2423,9 +2772,69 @@ function App() {
               {result.recommendation || result.summary}
             </div>
           )}
+
+          {result.bestOption ? renderFeaturedCard(result.bestOption) : null}
+
+          {nextAction ? (
+            <div style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: colors.textMuted,
+                  marginBottom: 10,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Next action
+              </div>
+              <a
+                href={normalizeExternalUrl(nextAction.url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '10px 16px',
+                  borderRadius: 10,
+                  backgroundColor: colors.primary,
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  textDecoration: 'none',
+                }}
+              >
+                {getLinkDisplayLabel(nextAction.url, nextAction.label)}
+              </a>
+            </div>
+          ) : null}
+
+          {renderAssumptions(assumptions)}
+          {renderConfidence(confidence)}
+
+          {hasDetails ? (
+            <button
+              type="button"
+              onClick={() =>
+                setShowTaskDetails((prev) => ({ ...prev, [taskId]: !prev[taskId] }))
+              }
+              style={{
+                border: `1px solid ${colors.border}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                backgroundColor: '#fff',
+                color: colors.text,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {detailsOpen ? 'Hide details' : 'View details'}
+            </button>
+          ) : null}
         </div>
 
-        {Array.isArray(result.steps) && result.steps.length > 0 ? (
+        {detailsOpen && Array.isArray(result.steps) && result.steps.length > 0 ? (
           <div style={{ marginBottom: isMobile ? 18 : 24 }}>
             <h3 style={{ margin: '0 0 12px', color: colors.text, fontSize: isMobile ? 18 : 20 }}>
               Workflow steps
@@ -2537,7 +2946,7 @@ function App() {
           </div>
         ) : null}
 
-        {Array.isArray(result.sections) && result.sections.length > 0 ? (
+        {detailsOpen && Array.isArray(result.sections) && result.sections.length > 0 ? (
           <div style={{ marginTop: isMobile ? 20 : 28 }}>
             <h3 style={{ margin: '0 0 12px', color: colors.text, fontSize: isMobile ? 18 : 20 }}>
               Summary details
@@ -2776,6 +3185,22 @@ function App() {
                         >
                           {typeMeta.label}
                         </span>
+                        {task.hasSuggestionUpdate ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '2px 7px',
+                              borderRadius: 999,
+                              backgroundColor: colors.warningBg,
+                              color: colors.warning,
+                              fontWeight: 700,
+                              fontSize: 11,
+                            }}
+                          >
+                            Updated
+                          </span>
+                        ) : null}
                       </div>
                       <div
                         style={{
@@ -2835,23 +3260,23 @@ function App() {
 
                     <button
                       type="button"
-                      onClick={() => (task.taskType === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
-                      disabled={(task.taskType === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.taskType !== 'research' && task.status === 'running')}
+                      onClick={() => (isSimpleTaskType(task.taskType) ? markSimpleTaskDone(task.id) : processTask(task.id))}
+                      disabled={(!isSimpleTaskType(task.taskType) && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (isSimpleTaskType(task.taskType) && task.status === 'running')}
                       style={{
                         border: 'none',
                         borderRadius: 10,
                         padding: '8px 12px',
                         backgroundColor:
-                          ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                            (task.taskType !== 'research' && task.status !== 'running'))
+                          ((!isSimpleTaskType(task.taskType) && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                            (isSimpleTaskType(task.taskType) && task.status !== 'running'))
                             ? colors.primary
                             : '#cbd5c8',
                         color: '#fff',
                         fontWeight: 800,
                         fontSize: 12,
                         cursor:
-                          ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                            (task.taskType !== 'research' && task.status !== 'running'))
+                          ((!isSimpleTaskType(task.taskType) && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                            (isSimpleTaskType(task.taskType) && task.status !== 'running'))
                             ? 'pointer'
                             : 'not-allowed',
                         minWidth: 72,
@@ -2859,9 +3284,10 @@ function App() {
                     >
                       {task.status === 'running' || task.status === 'analyzing'
                         ? 'Running'
-                        : task.taskType === 'research'
-                        ? 'Run'
-                        : 'Done'}
+                        : isSimpleTaskType(task.taskType)
+                        ? 'Done'
+                        : 'Run'
+                        }
                     </button>
                   </div>
                 </div>
@@ -2919,6 +3345,22 @@ function App() {
                       >
                         {typeMeta.label}
                       </span>
+                      {task.hasSuggestionUpdate ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            backgroundColor: colors.warningBg,
+                            color: colors.warning,
+                            fontWeight: 700,
+                            fontSize: 11,
+                          }}
+                        >
+                          Updated
+                        </span>
+                      ) : null}
                     </div>
                     <div
                       style={{
@@ -3290,23 +3732,23 @@ function App() {
 
                   <button
                     type="button"
-                    onClick={() => (task.taskType === 'research' ? processTask(task.id) : markSimpleTaskDone(task.id))}
-                    disabled={(task.taskType === 'research' && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (task.taskType !== 'research' && task.status === 'running')}
+                    onClick={() => (isSimpleTaskType(task.taskType) ? markSimpleTaskDone(task.id) : processTask(task.id))}
+                    disabled={(!isSimpleTaskType(task.taskType) && (!canRun || task.status === 'running' || task.status === 'analyzing')) || (isSimpleTaskType(task.taskType) && task.status === 'running')}
                     style={{
                       border: 'none',
                       borderRadius: 10,
                       padding: '8px 12px',
                       backgroundColor:
-                        ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                          (task.taskType !== 'research' && task.status !== 'running'))
+                        ((!isSimpleTaskType(task.taskType) && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                          (isSimpleTaskType(task.taskType) && task.status !== 'running'))
                           ? colors.primary
                           : '#cbd5c8',
                       color: '#fff',
                       fontWeight: 800,
                       fontSize: 12,
                       cursor:
-                        ((task.taskType === 'research' && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
-                          (task.taskType !== 'research' && task.status !== 'running'))
+                        ((!isSimpleTaskType(task.taskType) && canRun && task.status !== 'running' && task.status !== 'analyzing') ||
+                          (isSimpleTaskType(task.taskType) && task.status !== 'running'))
                           ? 'pointer'
                           : 'not-allowed',
                       minWidth: 72,
@@ -3314,9 +3756,10 @@ function App() {
                   >
                     {task.status === 'running' || task.status === 'analyzing'
                       ? 'Running'
-                      : task.taskType === 'research'
-                      ? 'Run'
-                      : 'Done'}
+                      : isSimpleTaskType(task.taskType)
+                      ? 'Done'
+                      : 'Run'
+                      }
                   </button>
                 </div>
               </div>
@@ -3365,16 +3808,19 @@ function App() {
               marginBottom: isMobile ? 6 : 10,
             }}
           >
-            AI Operator
+            TuDu
           </div>
-          <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 38, lineHeight: isMobile ? 1.08 : 1.05 }}>AI Task Inbox</h1>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 38, lineHeight: isMobile ? 1.08 : 1.05 }}>TuDu</h1>
           <p style={{ margin: isMobile ? '6px 0 0' : '12px 0 0', color: colors.textMuted, fontSize: isMobile ? 13 : 16, lineHeight: isMobile ? 1.45 : 1.6, maxWidth: isMobile ? 320 : 'none' }}>
-            Each workflow step now keeps its own structured recommendations, not just the final summary.
+            AI-powered tasks that think, plan, and execute for you.
+          </p>
+          <p style={{ margin: isMobile ? '4px 0 0' : '8px 0 0', color: colors.textMuted, fontSize: isMobile ? 12 : 14, lineHeight: 1.5, maxWidth: isMobile ? 320 : 520 }}>
+            From simple todos to complex planning — all in one place.
           </p>
         </div>
 
-        {error ? (
-          <div
+    {error ? (
+      <div
             style={{
               marginBottom: 18,
               padding: isMobile ? '12px 14px' : '14px 16px',
@@ -3385,8 +3831,23 @@ function App() {
             }}
           >
             {error}
-          </div>
-        ) : null}
+      </div>
+    ) : null}
+
+    {reminderBanner ? (
+      <div
+        style={{
+          marginBottom: 18,
+          padding: isMobile ? '12px 14px' : '14px 16px',
+          backgroundColor: colors.warningBg,
+          color: colors.warning,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 14,
+        }}
+      >
+        {reminderBanner}
+      </div>
+    ) : null}
 
         {isMobile ? (
           <div style={{ display: 'grid', gap: 10, width: '100%', minWidth: 0, overflowX: 'hidden', boxSizing: 'border-box', paddingBottom: 78 }}>
@@ -3478,9 +3939,25 @@ function App() {
                             fontWeight: 700,
                             fontSize: 12,
                           }}
-                        >
-                          {getTaskTypeMeta(selectedTask.taskType).label}
-                        </span>
+                      >
+                        {getTaskTypeMeta(selectedTask.taskType).label}
+                      </span>
+                        {selectedTask.hasSuggestionUpdate ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '6px 10px',
+                              borderRadius: 999,
+                              backgroundColor: colors.warningBg,
+                              color: colors.warning,
+                              fontWeight: 700,
+                              fontSize: 12,
+                            }}
+                          >
+                            Updated
+                          </span>
+                        ) : null}
                         {selectedTask.revisions && selectedTask.revisions.length > 0 && (
                           <button
                             onClick={() =>
@@ -3507,7 +3984,7 @@ function App() {
                     </div>
 
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {selectedTask.taskType === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
+                      {!isSimpleTaskType(selectedTask.taskType) && (selectedTask.status === 'queued' || selectedTask.status === 'failed' || selectedTask.status === 'needs_input') ? (
                         <button
                           onClick={() => processTask(selectedTask.id)}
                           style={{
@@ -3525,7 +4002,7 @@ function App() {
                         </button>
                       ) : null}
 
-                      {selectedTask.taskType === 'research' && selectedTask.status === 'ready' ? (
+                      {isAiTaskType(selectedTask.taskType) && selectedTask.status === 'ready' ? (
                         <button
                           onClick={() => setShowCustomizeModal(true)}
                           style={{
@@ -3545,7 +4022,9 @@ function App() {
                     </div>
                   </div>
 
-                  {selectedTask.taskType !== 'research' ? (
+                  {renderReminderControls(selectedTask)}
+
+                  {isSimpleTaskType(selectedTask.taskType) ? (
                     <div
                       style={{
                         border: `1px solid ${colors.border}`,
@@ -3557,9 +4036,7 @@ function App() {
                     >
                       <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTask.title}</div>
                       <div style={{ color: colors.textMuted, lineHeight: 1.5, fontSize: 14, marginBottom: 12 }}>
-                        {selectedTask.taskType === 'habit'
-                          ? 'Habit item. Track it daily.'
-                          : 'Simple task. Complete it when done.'}
+                        Simple task. Complete it when done.
                       </div>
                       <button
                         onClick={() => markSimpleTaskDone(selectedTask.id)}
@@ -3618,7 +4095,7 @@ function App() {
                       {showHistory[selectedTask.id] && renderTaskHistory(selectedTask)}
                       {renderTaskResult(selectedTask.result, selectedTask.id)}
 
-                      {selectedTask.taskType === 'research' ? <div
+                      {isAiTaskType(selectedTask.taskType) ? <div
                         style={{
                           borderTop: `1px solid ${colors.border}`,
                           paddingTop: 16,
@@ -3710,7 +4187,7 @@ function App() {
                     </>
                   )}
 
-                  {selectedTask.taskType === 'research' && showCustomizeModal && (
+                  {isAiTaskType(selectedTask.taskType) && showCustomizeModal && (
                     <div
                       style={{
                         position: 'fixed',
@@ -3907,7 +4384,7 @@ function App() {
                   color: colors.textMuted,
                 }}
               >
-                Select a task from the left to review results and customize it.
+                Select a task to review results and customize it.
               </div>
             ) : (
               <>
@@ -3965,6 +4442,22 @@ function App() {
                       >
                         {getTaskTypeMeta(selectedTask.taskType).label}
                       </span>
+                      {selectedTask.hasSuggestionUpdate ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '6px 10px',
+                            borderRadius: 999,
+                            backgroundColor: colors.warningBg,
+                            color: colors.warning,
+                            fontWeight: 700,
+                            fontSize: 12,
+                          }}
+                        >
+                          Updated
+                        </span>
+                      ) : null}
                       {selectedTask.revisions && selectedTask.revisions.length > 0 && (
                         <button
                           onClick={() =>
@@ -3990,7 +4483,7 @@ function App() {
                     </div>
                   </div>
 
-                  {selectedTask.taskType === 'research' && (selectedTask.status === 'queued' || selectedTask.status === 'failed') ? (
+                  {!isSimpleTaskType(selectedTask.taskType) && (selectedTask.status === 'queued' || selectedTask.status === 'failed') ? (
                     <button
                       onClick={() => processTask(selectedTask.id)}
                       style={{
@@ -4008,7 +4501,7 @@ function App() {
                     </button>
                   ) : null}
 
-                  {selectedTask.taskType === 'research' && selectedTask.status === 'ready' ? (
+                  {isAiTaskType(selectedTask.taskType) && selectedTask.status === 'ready' ? (
                     <button
                       onClick={() => setShowCustomizeModal(true)}
                       style={{
@@ -4027,7 +4520,9 @@ function App() {
                   ) : null}
                 </div>
 
-                {selectedTask.taskType !== 'research' ? (
+                {renderReminderControls(selectedTask)}
+
+                {isSimpleTaskType(selectedTask.taskType) ? (
                   <div
                     style={{
                       border: `1px solid ${colors.border}`,
@@ -4039,9 +4534,7 @@ function App() {
                   >
                     <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTask.title}</div>
                     <div style={{ color: colors.textMuted, lineHeight: 1.6, marginBottom: 12 }}>
-                      {selectedTask.taskType === 'habit'
-                        ? 'Habit item. Track it daily.'
-                        : 'Simple task. Complete it when done.'}
+                      Simple task. Complete it when done.
                     </div>
                     <button
                       onClick={() => markSimpleTaskDone(selectedTask.id)}
@@ -4099,7 +4592,7 @@ function App() {
                     {showHistory[selectedTask.id] && renderTaskHistory(selectedTask)}
                     {renderTaskResult(selectedTask.result, selectedTask.id)}
 
-                    {selectedTask.taskType === 'research' ? <div
+                    {isAiTaskType(selectedTask.taskType) ? <div
                       style={{
                         borderTop: `1px solid ${colors.border}`,
                         paddingTop: 22,
@@ -4191,7 +4684,7 @@ function App() {
                   </>
                 )}
 
-                {selectedTask.taskType === 'research' && showCustomizeModal && (
+                {isAiTaskType(selectedTask.taskType) && showCustomizeModal && (
                   <div
                     style={{
                       position: 'fixed',
